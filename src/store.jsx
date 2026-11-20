@@ -23,7 +23,25 @@ export const calc=(ideas,w)=>{const t=Object.values(w).reduce((a,b)=>a+b,0)||1
  return e.sort((a,b)=>b.score-a.score||b.simple-a.simple||b.conf-a.conf).map((x,n)=>({...x,rank:n+1}))}
 export const why=x=>`Feasibility ${x.s.f} dan Impact ${x.s.i}, masuk kuadran ${x.quad}. Skor berbobot ${x.score}/100 dengan confidence ${x.conf}%.`
 export const nextStep=x=>x.conf<67?'Validasi dulu: wawancarai 5 calon pengguna sebelum membuat apa pun.':x.quad==='Prioritas Utama'?'Buat prototype dalam 1 minggu, lalu uji ke 5 pengguna.':'Uji minat lewat survei singkat, lalu putuskan lanjut atau tunda.'
-const init=()=>{try{return JSON.parse(localStorage.getItem('ideavalid'))||{ideas:[],w:DEF_W}}catch{return{ideas:[],w:DEF_W}}}
+export const wNorm=w=>{const t=Object.values(w).reduce((a,b)=>a+b,0)||1;return Object.fromEntries(Object.entries(w).map(([k,v])=>[k,Math.round(v/t*100)]))}
+export const previewW=(ideas,w,dw)=>{const a=calc(ideas,w);return calc(ideas,dw).map(x=>{const o=a.find(y=>y.id===x.id);return{...x,from:o.rank,fromScore:o.score}})}
+// Analisa perubahan penilaian satu ide TANPA mengubah state: bandingkan kondisi tersimpan vs draft.
+export const analyze=(ideas,w,id,draft)=>{
+ const before=calc(ideas,w),after=calc(ideas.map(x=>x.id===id?{...x,...draft}:x),w)
+ const now=before.find(x=>x.id===id),next=after.find(x=>x.id===id)
+ const moved=after.filter(x=>x.id!==id).map(x=>({name:x.name,from:before.find(y=>y.id===x.id).rank,to:x.rank})).filter(x=>x.from!==x.to)
+ const diffs=CRIT.filter(c=>now.s[c.k]!==draft.s[c.k]).map(c=>({...c,from:now.s[c.k],to:draft.s[c.k]}))
+ const chk=CHECKS.filter(([k])=>!!now.checks[k]!==!!draft.checks[k]).map(([k,l])=>({k,l,on:!!draft.checks[k]}))
+ const notes=[]
+ notes.push(next.rank<now.rank?{t:'ok',text:`Peringkat naik dari #${now.rank} ke #${next.rank}.`}:next.rank>now.rank?{t:'warn',text:`Peringkat turun dari #${now.rank} ke #${next.rank}.`}:{t:'info',text:`Peringkat tetap #${now.rank}.`})
+ if(next.quad!==now.quad)notes.push({t:'info',text:`Kuadran berubah dari ${now.quad} ke ${next.quad}.`})
+ const big=diffs.filter(c=>Math.abs(c.to-c.from)>=2)
+ if(big.length)notes.push({t:'warn',text:`Ada lompatan 2 poin atau lebih pada ${big.map(c=>c.n).join(', ')}. Pastikan ada dasarnya (wawancara, data), bukan sekadar perkiraan.`})
+ if(nextStep(now)!==nextStep(next))notes.push({t:'info',text:`Rekomendasi langkah berikut ikut berubah: ${nextStep(next)}`})
+ if(moved.length)notes.push({t:'info',text:`${moved.length} ide lain ikut bergeser peringkat.`})
+ return{now,next,moved,diffs,chk,notes}}
+// Pengunjung baru (belum ada data tersimpan) langsung melihat contoh seblak; setelah itu data mereka sendiri yang dipakai.
+const init=()=>{try{return JSON.parse(localStorage.getItem('ideavalid'))||{ideas:DEMO(),w:DEF_W}}catch{return{ideas:DEMO(),w:DEF_W}}}
 const red=(st,a)=>{switch(a.t){
  case'add':return{...st,ideas:[...st.ideas,{id:crypto.randomUUID(),s:{f:3,i:3,c:3,u:3},checks:{real:0,user:0,proto:0},...a.v}]}
  case'edit':return{...st,ideas:st.ideas.map(x=>x.id===a.id?{...x,...a.v}:x)}
@@ -32,6 +50,8 @@ const red=(st,a)=>{switch(a.t){
  case'del':return{...st,ideas:st.ideas.filter(x=>x.id!==a.id)}
  case'load':return{...st,ideas:a.v}
  case'w':return{...st,w:{...st.w,[a.k]:a.v}}
+ case'apply':return{...st,ideas:st.ideas.map(x=>x.id===a.id?{...x,s:a.v.s,checks:a.v.checks}:x)}
+ case'setw':return{...st,w:a.v}
  case'resetw':return{...st,w:DEF_W}
  case'import':return a.v
  default:return st}}
